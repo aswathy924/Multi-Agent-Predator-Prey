@@ -96,19 +96,22 @@ class DQNAgent:
             max_next_q = self.target_net(next_states).max(1)[0].unsqueeze(1)
             target_q = rewards + (1 - dones) * self.gamma * max_next_q
 
-        # Compute Loss
-        loss = nn.MSELoss()(q_values, target_q)
+        # Compute Loss using Huber loss for stability
+        loss = nn.SmoothL1Loss()(q_values, target_q)
         
         self.optimizer.zero_grad()
         loss.backward()
+        # Gradient clipping for stability
+        torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), 1.0)
         self.optimizer.step()
         
         loss_val = loss.item()
         self.loss_history.append(loss_val)
         return loss_val
 
-    def update_target_network(self):
-        self.target_net.load_state_dict(self.policy_net.state_dict())
+    def update_target_network(self, tau=0.005):
+        for target_param, local_param in zip(self.target_net.parameters(), self.policy_net.parameters()):
+            target_param.data.copy_(tau * local_param.data + (1.0 - tau) * target_param.data)
 
     def decay_epsilon(self):
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)

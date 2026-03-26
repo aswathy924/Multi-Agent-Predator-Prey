@@ -139,9 +139,10 @@ class D3QNAgent:
         self.loss_history.append(loss_val)
         return loss_val
 
-    def update_target_network(self):
-        # Soft update for extreme stability (Tau = 0.005) is also common, but hard update is fine
-        self.target_net.load_state_dict(self.policy_net.state_dict())
+    def update_target_network(self, tau=0.005):
+        # Soft update for stability
+        for target_param, local_param in zip(self.target_net.parameters(), self.policy_net.parameters()):
+            target_param.data.copy_(tau * local_param.data + (1.0 - tau) * target_param.data)
 
     def decay_epsilon(self):
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)

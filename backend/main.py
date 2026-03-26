@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Body, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 import time
@@ -13,7 +14,12 @@ from env.continuous_env import ContinuousPreyEnv
 from agents.dqn_agent import DQNAgent
 from agents.d3qn_agent import D3QNAgent
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_agents(3, "d3qn", "medium")
+    yield
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -78,9 +84,7 @@ def init_agents(num_predators, algorithm, difficulty):
         predator_agent.epsilon = 0.02; predator_agent.epsilon_min = 0.01
         env.pred_max_speed = 0.06
 
-@app.on_event("startup")
-def startup_event():
-    init_agents(3, "d3qn", "medium")
+# Replaced startup_event with lifespan context manager above
 
 @app.get("/")
 def home():
@@ -204,7 +208,11 @@ async def training_loop():
                 prey_agent.store_transition(old_q, prey_action, prey_r, new_q, done)
 
             predator_agent.train_step()
-            if not PLAY_MODE: prey_agent.train_step()
+            predator_agent.update_target_network(tau=0.005)
+            
+            if not PLAY_MODE:
+                prey_agent.train_step()
+                prey_agent.update_target_network(tau=0.005)
             
             await asyncio.sleep(0.015) 
             
@@ -219,9 +227,11 @@ async def training_loop():
 
         predator_agent.decay_epsilon()
         if not PLAY_MODE: prey_agent.decay_epsilon()
-        if episodes % 5 == 0:
-            predator_agent.update_target_network()
-            prey_agent.update_target_network()
+        
+        # Save models periodically
+        if episodes % 2 == 0:
+            predator_agent.save_model()
+            if not PLAY_MODE: prey_agent.save_model()
 
 @app.post("/train/start")
 async def start_training(payload: dict = Body(default={})):
